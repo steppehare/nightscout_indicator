@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <U8g2lib.h>
 #include "config.h"
+#include "wifi_manager.h" // Include the new manager
 #include <time.h> // Required for NTP and time functions
 
 // Initialize the U8g2 library for the 128x64 I2C OLED display
@@ -18,8 +19,11 @@ long lastReadingTimestamp = 0;
 // Timer variables for non-blocking updates
 unsigned long previousMillis = 0;
 
+// WiFi Manager Instance
+NightscoutWifiManager wifiManager;
+
 // Function prototypes
-void setupWifi();
+// void setupWifi(); // Removed old prototype
 void fetchNightscoutData();
 void updateDisplay(const char* message = nullptr);
 int getTrendArrowGlyph(String directionStr);
@@ -32,10 +36,16 @@ void setup() {
   u8g2.enableUTF8Print(); // Enable UTF-8 support for special symbols like arrows
 
   // Display a startup message
-  updateDisplay("Connecting...");
+  updateDisplay("Starting...");
 
-  // Connect to WiFi
-  setupWifi();
+  // Try to connect using the manager
+  bool connected = wifiManager.connect(updateDisplay);
+
+  if (!connected) {
+      // If failed to connect to any known network, enter AP mode
+      // This function blocks until user configures and device restarts
+      wifiManager.startAPMode(updateDisplay);
+  }
 
   // Configure timezone for timestamp conversion after WiFi is connected
   if (WiFi.status() == WL_CONNECTED) {
@@ -60,64 +70,19 @@ void loop() {
     if (WiFi.status() == WL_CONNECTED) {
       fetchNightscoutData();
     } else {
-      // If WiFi is disconnected, try to reconnect
-      Serial.println("WiFi disconnected. Reconnecting...");
-      setupWifi();
+      // If WiFi is disconnected, try to reconnect using the manager
+      // Note: We might want a non-blocking reconnect here eventually
+      Serial.println("WiFi disconnected. Attempting reconnect...");
+      if (!wifiManager.connect(updateDisplay)) {
+           // If reconnect fails, we just keep retrying in the loop, or we could go to AP mode?
+           // For now, let's just stay in the loop and retry periodically.
+           updateDisplay("WiFi Lost");
+      }
     }
   }
 }
+// Old setupWifi function removed
 
-void setupWifi() {
-  WiFi.disconnect(true); // Disconnect from any previous network
-  delay(100);
-
-  for (int i = 0; i < NUM_WIFI_NETWORKS; i++) {
-    // Skip empty SSID entries
-    if (strlen(WIFI_SSIDS[i]) == 0) {
-      continue;
-    }
-
-    Serial.print("Attempting to connect to SSID: ");
-    Serial.println(WIFI_SSIDS[i]);
-
-    // Manually draw a two-line connecting message for long SSIDs
-    u8g2.clearBuffer();
-    u8g2.setFont(u8g2_font_ncenB10_tr); // Use a standard font
-    const char* line1 = "Connecting to";
-    u8g2.drawStr((128 - u8g2.getStrWidth(line1)) / 2, 28, line1);
-    const char* ssidLine = WIFI_SSIDS[i];
-    u8g2.drawStr((128 - u8g2.getStrWidth(ssidLine)) / 2, 44, ssidLine); // Y=44 for the second line
-    u8g2.sendBuffer();
-
-    WiFi.begin(WIFI_SSIDS[i], WIFI_PASSWORDS[i]);
-
-    int attempts = 0;
-    // Try to connect for about 15 seconds
-    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-      delay(500);
-      Serial.print(".");
-      attempts++;
-    }
-
-    // If connected, break the loop
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("\nWiFi connected!");
-      Serial.print("IP address: ");
-      Serial.println(WiFi.localIP());
-      updateDisplay("Connected!");
-      delay(1000); // Show "Connected!" for a moment
-      return; // Exit the function successfully
-    } else {
-      Serial.println("\nFailed to connect.");
-      WiFi.disconnect(true); // Important to disconnect before trying the next one
-      delay(100);
-    }
-  }
-
-  // If we've gone through all networks and none connected
-  Serial.println("\nFailed to connect to any WiFi network.");
-  updateDisplay("WiFi Error");
-}
 
 void fetchNightscoutData() {
   HTTPClient http;
@@ -192,9 +157,22 @@ void updateDisplay(const char* message) {
   u8g2.clearBuffer();
 
   if (message) {
-    // Display a centered message (for errors or status)
-    u8g2.setFont(u8g2_font_ncenB10_tr);
-    u8g2.drawStr((128 - u8g2.getStrWidth(message)) / 2, 36, message);
+    if (strcmp(message, "SETUP_MODE") == 0) {
+      u8g2.setFont(u8g2_font_ncenR08_tr);
+      u8g2.drawStr(0, 12, "WiFi Setup Mode");
+      
+      String ssidLine = "SSID: " + String(wifiManager.getApSsid());
+      String passLine = "Pass: " + String(wifiManager.getApPass());
+      String ipLine = "IP: " + wifiManager.getApIp();
+      
+      u8g2.drawStr(0, 28, ssidLine.c_str());
+      u8g2.drawStr(0, 42, passLine.c_str());
+      u8g2.drawStr(0, 56, ipLine.c_str());
+    } else {
+      // Display a centered message (for errors or status)
+      u8g2.setFont(u8g2_font_ncenB10_tr);
+      u8g2.drawStr((128 - u8g2.getStrWidth(message)) / 2, 36, message);
+    }
   } else {
     // --- Display Normal Data ---
 
