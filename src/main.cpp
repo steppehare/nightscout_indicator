@@ -39,9 +39,10 @@ void setup() {
 
   // Configure timezone for timestamp conversion after WiFi is connected
   if (WiFi.status() == WL_CONNECTED) {
+    configTime(0, 0, "pool.ntp.org", "time.google.com"); // Initialize NTP
     setenv("TZ", TZ_INFO, 1); // Set timezone based on config.h
     tzset(); // Apply timezone settings
-    Serial.println("Timezone configured for timestamp conversion.");
+    Serial.println("NTP initialized and Timezone configured.");
   }
 
   // Fetch initial data immediately
@@ -214,11 +215,24 @@ void updateDisplay(const char* message) {
         int sgvStartX = (128 - totalWidth) / 2;
         // --- End New Layout Logic ---
     
-        // Draw SGV
-        u8g2.drawStr(sgvStartX, 62, sgv.c_str()); // Adjusted Y for new font size
-    
-        // Draw Trend Arrow(s) to the right of the SGV
-        int trendGlyph = getTrendArrowGlyph(direction);
+            // Draw SGV
+            u8g2.drawStr(sgvStartX, 62, sgv.c_str()); // Adjusted Y for new font size
+        
+            // --- Strike through if data is older than 3 minutes (180 seconds) ---
+            time_t now;
+            time(&now);
+            if (lastReadingTimestamp > 0 && (now - lastReadingTimestamp) > 180) {
+                // Drawing lines roughly around the middle, 2 pixels thick each.
+                u8g2.drawHLine(sgvStartX - 2, 36, sgvWidth + 4);
+                u8g2.drawHLine(sgvStartX - 2, 37, sgvWidth + 4);
+                
+                u8g2.drawHLine(sgvStartX - 2, 42, sgvWidth + 4);
+                u8g2.drawHLine(sgvStartX - 2, 43, sgvWidth + 4);
+            }
+            // --------------------------------------------------------------------
+        
+            // Draw Trend Arrow(s) to the right of the SGV
+            int trendGlyph = getTrendArrowGlyph(direction);
         if (trendGlyph != 0) {
           int arrowStartX = sgvStartX + sgvWidth + gap; // Position arrow to the right of SGV
           u8g2.setFont(u8g2_font_unifont_t_symbols); // Use the dedicated symbols font
