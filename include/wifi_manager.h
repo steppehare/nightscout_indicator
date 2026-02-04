@@ -264,9 +264,18 @@ public:
     Serial.print("AP IP address: ");
     Serial.println(WiFi.softAPIP());
     
+    unsigned long startTime = millis();
+    const unsigned long AP_TIMEOUT = 90000; // 90 seconds
+
     while(true) {
         dnsServer.processNextRequest();
         server.handleClient();
+        
+        if (millis() - startTime > AP_TIMEOUT) {
+            Serial.println("AP Mode timeout. Restarting...");
+            ESP.restart();
+        }
+
         delay(10); // Yield
     }
   }
